@@ -21,13 +21,33 @@ import re
 import shutil
 import socket
 import subprocess
+import glob
 import sys
 import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-EXE = os.path.join(ROOT, "dist", "表情映射生成器.exe")
+
+
+def find_exe():
+    """dist 下的 exe。
+
+    打包出来的文件名可能带版本号后缀（比如 `表情映射生成器0.8.exe`），
+    写死一个名字会「找不到 exe」的假失败 —— 所以先认默认名，
+    找不到就取 dist 里**最新**的那个 exe。
+    """
+    d = os.path.join(ROOT, "dist")
+    fixed = os.path.join(d, "表情映射生成器.exe")
+    if os.path.isfile(fixed):
+        return fixed
+    cands = [p for p in glob.glob(os.path.join(d, "*.exe"))]
+    if not cands:
+        return fixed
+    return max(cands, key=os.path.getmtime)
+
+
+EXE = find_exe()
 PORT = 8891
 
 fails = []

@@ -23,7 +23,25 @@ import ctypes
 from ctypes import wintypes
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(HERE, "dist", "表情映射生成器.exe")
+
+
+def find_exe():
+    """dist 下的 exe。
+
+    打包出来的文件名可能带版本号后缀（比如 `表情映射生成器0.8.exe`），
+    写死一个名字会「找不到 exe」的假失败 —— 先认默认名，
+    找不到就取 dist 里**最新**的那个 exe。
+    """
+    import glob
+    d = os.path.join(HERE, "dist")
+    fixed = os.path.join(d, "表情映射生成器.exe")
+    if os.path.isfile(fixed):
+        return fixed
+    cands = glob.glob(os.path.join(d, "*.exe"))
+    return max(cands, key=os.path.getmtime) if cands else fixed
+
+
+EXE = find_exe()
 EXE_NAME = os.path.basename(EXE)                 # 任务管理器里看到的进程名
 PORT = 8787
 URL = "http://127.0.0.1:%d/" % PORT
