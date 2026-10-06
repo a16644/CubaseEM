@@ -1,0 +1,8 @@
+# 换行统一：仓库里存 LF，Windows 上 checkout 自动转回 CRLF（.bat 必须有 CRLF）
+* text=auto
+
+# 这些是二进制 / 不能改换行的
+*.png binary
+*.ico binary
+*.exe binary
+*.zip binary

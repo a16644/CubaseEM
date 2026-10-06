@@ -1,0 +1,6 @@
+﻿map_name,name,switch,note,channel,length,description,order
+演示 Kontakt 弦乐,长音 Sus,ks,24,,1,Sustain,1
+演示 Kontakt 弦乐,连奏 Legato,ks,25,,1,Legato,2
+演示 Kontakt 弦乐,跳弓 Spiccato,ks,26,,0.2,Spiccato,3
+演示 Kontakt 弦乐,拨弦 Pizzicato,ks+ch,27,2,1,Pizzicato,4
+演示 Kontakt 弦乐,颤音 Tremolo,ch,,3,1,Tremolo,5

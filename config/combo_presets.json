@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "updated": "2026-10-04 17:30:59",
+  "presets": [
+    {
+      "name": "吉他双条件",
+      "layers": [
+        0,
+        1
+      ],
+      "prefix": "插槽",
+      "combos": [
+        {
+          "members": [
+            {
+              "group": 0,
+              "description": "sus",
+              "note": 24
+            },
+            {
+              "group": 1,
+              "description": "正常",
+              "note": 6
+            }
+          ],
+          "note": [
+            24,
+            6
+          ]
+        },
+        {
+          "members": [
+            {
+              "group": 0,
+              "description": "sus",
+              "note": 24
+            },
+            {
+              "group": 1,
+              "description": "一弦",
+              "note": 5
+            }
+          ],
+          "note": [
+            24,
+            5
+          ]
+        }
+      ],
+      "updated": "2026-10-04 17:30:59"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+C1 Legato
+C#1 Staccato
+D1 - Spiccato
+27 Tremolo
+ch2 Pizzicato
+ch3 C2 泛音
+顿弓
+# 上面这行没写音符，会自动补 keyswitch

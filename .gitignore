@@ -1,0 +1,35 @@
+# 打包产物 —— 随时可以用 python build.py 重新生成，不进版本库
+dist/
+build/
+*.spec.bak
+
+# 运行时产物
+out/
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+
+# 本机个人数据（技法库 / 界面偏好 / 保存的库）—— 只属于你自己，不进版本库
+config/techniques.json
+config/techniques.json.bak
+config/settings.json
+config/libs/
+config/upload/
+
+# 编辑器 / 系统垃圾
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 虚拟环境
+.venv/
+venv/
+
+# 打包时脚本自己生成的说明（内容已写进 分享给朋友.md）
+_使用说明_免安装版.txt
+
+# 临时日志
+_*.txt
