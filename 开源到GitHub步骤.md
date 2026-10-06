@@ -1,7 +1,17 @@
 # 开源到 GitHub —— 三步走
 
-仓库已经在本机准备好了（`git init` + 首次提交已完成，80 个文件，MIT 协议）。
-剩下三步在网上，做完就能公开。
+仓库已经在本机准备好了（`git init` + 两次提交已完成，82 个文件，MIT 协议）。
+
+**当前状态**（用户名已知：`a16644`）
+
+| 事项 | 状态 |
+|---|---|
+| 本地仓库 + 提交 | ✅ 已好，作者已改成 `a16644 <a16644@users.noreply.github.com>` |
+| 远程地址 | ✅ 已接好 → `ssh://git@github.com/a16644/CubaseEM.git` |
+| SSH 密钥 | ✅ 已生成，❌ **还没加到 GitHub**（现在测是 `Permission denied (publickey)`） |
+| 网页上的仓库 | ❓ 待确认（`github.com/a16644/CubaseEM` 需要先建出来） |
+
+所以只剩：**加公钥 → 建空仓库 → 推**。
 
 ---
 
@@ -40,15 +50,27 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAfPNSOun0utSEdl4UXNsZ3VcCVdpeuWLSga0RSBQsG
 
 ---
 
-## 第 3 步：双击 `push_github.bat`
+## 第 3 步：推送
 
 回到 `D:\缓存\workbuddy\CubaseEM`，双击 **`push_github.bat`**：
 
-1. 问 `GitHub username:` → 填你的用户名（页面右上角头像点开能看到，就是 `github.com/<这个>`）
-2. 问 `Repo name [CubaseEM]:` → 直接回车用默认
-3. 它会自动：设好提交身份（用 GitHub 的 noreply 邮箱，不泄露真实邮箱）→ 接远程 → 推送
+1. 问 `GitHub username:` → 填 `a16644`
+2. 问 `Repo name [CubaseEM]:` → 直接回车
+3. 它会先自检 SSH 密钥，通过后自动推送
 
-看到 `[OK] done -> https://github.com/xxx/CubaseEM` 就完成了。刷新网页就是你的开源项目页。
+看到 `[OK] done -> https://github.com/a16644/CubaseEM` 就完成了。刷新网页就是你的开源项目页。
+
+也可以直接敲两条命令，效果一样：
+
+```bash
+git -C "D:/缓存/workbuddy/CubaseEM" push -u origin main
+```
+
+> **为什么远程地址写成 `ssh://git@github.com/...` 而不是常见的 `git@github.com:...`？**
+> 这台机器有一条全局 git 规则 `url.https://github.com/.insteadof=git@github.com:`，
+> 会把 `git@github.com:a16644/CubaseEM.git` 悄悄改写成 https 地址（然后要求账密/token）。
+> `ssh://` 这种写法不匹配那条规则，于是老老实实走密钥认证。
+
 
 ---
 

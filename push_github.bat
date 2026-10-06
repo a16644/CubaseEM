@@ -35,10 +35,25 @@ if "%NCOMMIT%"=="1" git commit --amend --reset-author --no-edit >nul
 
 git branch -M main
 git remote remove origin >nul 2>&1
-git remote add origin git@github.com:%GHUSER%/%GHREPO%.git
+REM NOTE: use the ssh:// form on purpose. This machine has a global git rule
+REM   url.https://github.com/.insteadof = git@github.com:
+REM which rewrites git@github.com:USER/REPO.git into an https URL. The ssh://
+REM form does not match that rule, so we keep real SSH (key auth, no password).
+git remote add origin ssh://git@github.com/%GHUSER%/%GHREPO%.git
 
 echo.
-echo Pushing to git@github.com:%GHUSER%/%GHREPO%.git ...
+echo Checking SSH key ...
+ssh -T -o BatchMode=yes -o ConnectTimeout=15 git@github.com 2>&1 | findstr /C:"successfully authenticated" >nul
+if errorlevel 1 (
+  echo [!] GitHub did not accept your SSH key yet.
+  echo     Add the public key at https://github.com/settings/keys then run this again.
+  echo     Public key file: %USERPROFILE%\.ssh\id_ed25519.pub
+  pause
+  exit /b 1
+)
+
+echo.
+echo Pushing to ssh://git@github.com/%GHUSER%/%GHREPO%.git ...
 git push -u origin main
 
 if errorlevel 1 (
