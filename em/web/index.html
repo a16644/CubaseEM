@@ -341,6 +341,18 @@ a.q{display:inline-block;width:13px;height:13px;line-height:13px;text-align:cent
       <button data-sc="lib">本音源</button>
       <button data-sc="global">全局</button>
     </div>
+    <div style="display:flex;gap:4px;margin-bottom:6px">
+      <select id="libGroup" style="flex:1" title="清单条目怎么归堆">
+        <option value="none">不分组</option>
+        <option value="source">按音源分组</option>
+        <option value="name">按技法名分组</option>
+      </select>
+      <select id="libSort" style="flex:1" title="组内/列表怎么排">
+        <option value="none">默认顺序</option>
+        <option value="pinyin">按名称拼音</option>
+        <option value="key">按键位数值</option>
+      </select>
+    </div>
     <div class="libbox" id="liblist"></div>
     <div class="hint" style="margin-top:8px">
       点一条 → 加到右边的表格；没保存的行永远不会自动进这儿。
@@ -351,7 +363,7 @@ a.q{display:inline-block;width:13px;height:13px;line-height:13px;text-align:cent
   <div class="panel" id="mid">
     <h3>这张映射里有哪些技法 <span class="sp"></span>
       <button class="mini" id="addRow">+ 加一行</button>
-      <button class="mini" id="fillPred" title="把所有灰色的推算值一次性填进去（触发键 / 通道 / CC / 细则参数都算），只填空着的格子">补齐推算出来的值</button>
+      <button class="mini" id="fillPred" title="按类检查规律后补空格：有勾选行只处理勾选的；每类（触发键/通道/CC/长度/力度/音高/颜色…）至少两行已填、且连续变化（公差一致）才补；不符合的类会弹窗说明。只填空格子，已填的不动">补齐推算出来的值</button>
       <button class="mini" id="demoBtn">载入示例</button>
       <button class="mini" id="pasteBtn">粘贴音源说明书</button>
       <button class="mini" id="colReset" title="把表格列宽恢复成默认值（列宽可以拖表头右边缘自己调，调过的会记住）">列宽复位</button>
@@ -380,7 +392,7 @@ a.q{display:inline-block;width:13px;height:13px;line-height:13px;text-align:cent
           <select id="batchSwitch" class="w96"></select>
           <button class="mini" id="applySwitch">设成这种方式</button></label>
         <button class="mini" id="batchAdvanced">高级参数…</button>
-        <button class="mini" id="batchFillPred">补齐推算出来的值</button>
+        <button class="mini" id="batchFillPred" title="只处理当前勾选的行，规则同上面的「补齐推算出来的值」：每类至少两行已填且连续变化才补，不合规的弹窗说明">补齐推算出来的值</button>
       </div>
     </div>
 
@@ -963,23 +975,129 @@ function channelToType(i){
   toast('第 '+(i+1)+' 行触发方式改成「按通道切换」'+(on?'：生成时按纯通道触发，不再补键位':''));
   return true;
 }
-/* 一键把所有推出来的值填进去（触发类 + 细则参数，只填空着的格子） */
+/* ================= 「补齐推算出来的值」v2（2026-10 与用户逐条确认的规则） =================
+   1. 有勾选行 → 只处理勾选的；没勾选 → 处理全部行
+   2. 每个可填字段独立成「类」，类与类互不干扰；技法名不参与
+   3. 某类在范围内**至少 2 行已填**才参与；只有 1 行 → 报告，不猜
+   4. 行按 # 序号排好后：公差 = 最前面两个已填值的差；
+      要求每个相邻已填对满足 (后值-前值) === 公差 × 行距（严格相等）。
+      公差 0 = 连续相同；公差一致为正/负 = 连续递增/递减。
+      对不上 → 弹出该类与行号，等用户改好再点一次按钮
+   5. 每类有公差上限，超了也弹出该类与行号
+   6. 双键齐按(ks2)的第二键、通道＋按键(ks+ch)的通道是键位组合的一部分，
+      **永不自动补**；发现已填会在提示里说明，请用键位组合或手动修改
+   7. 颜色按预制色板编号(1~16)参与同一套规则，写回时走 wrapColor；
+      色号本身就是导出值，内部编号不会进映射文件 */
+const PRED_CLASSES=[
+  {f:'note',         label:'触发键',   maxStep:12,  pool:r=>{const s=String(r.switch||'');return s==='ks'||s==='ks2'||s==='ks+ch';}},
+  {f:'channel',      label:'通道',     maxStep:4,   pool:r=>String(r.switch||'')==='ch'},
+  {f:'cc_num',       label:'CC 号',    maxStep:16,  pool:r=>String(r.switch||'')==='cc'},
+  {f:'cc_val',       label:'CC 值',    maxStep:32,  pool:r=>String(r.switch||'')==='cc'},
+  {f:'length_fact',  label:'长度',     maxStep:1,   flt:true, pool:()=>true},
+  {f:'velocity_fact',label:'力度系数', maxStep:0.5, flt:true, pool:()=>true},
+  {f:'transpose',    label:'转调',     maxStep:12,  pool:()=>true},
+  {f:'min_velocity', label:'最小力度', maxStep:24,  pool:()=>true},
+  {f:'max_velocity', label:'最大力度', maxStep:24,  pool:()=>true},
+  {f:'min_pitch',    label:'最小音高', maxStep:12,  pool:()=>true},
+  {f:'max_pitch',    label:'最大音高', maxStep:12,  pool:()=>true},
+  {f:'color',        label:'显示色',   maxStep:4,   pool:()=>true}];
+function predClassValue(c,r){
+  if(c.f==='color'){const v=+r.color;return (Number.isFinite(v)&&v)?v:null;}
+  return fieldValue(c.f,r);
+}
+function predFmt(c,v){
+  if(SERIES[c.f]&&SERIES[c.f].note)return noteName(v)||String(v);
+  return String(Math.round(v*1000)/1000);
+}
+/* 一个类的完整分析。返回 {status, msg?, fills?}：
+   empty=没人填(静默跳过) / one=只填了一行 / bad=规律不连续或超上限
+   ok=fills: Map(原行号 -> 该填的值) */
+function analyzePredClass(c,scoped){
+  const items=[];
+  scoped.forEach((oi,k)=>{
+    const r=S.rows[oi];
+    if(!r||r.combo)return;
+    if(!c.pool(r))return;
+    items.push({oi:oi,k:k,v:predClassValue(c,r)});
+  });
+  const filled=items.filter(x=>x.v!=null);
+  const empties=items.filter(x=>x.v==null);
+  if(!filled.length)return {status:'empty'};
+  if(filled.length===1)
+    return {status:'one',msg:'「'+c.label+'」只有第 '+(filled[0].oi+1)+' 行填了值，看不出变化规律。'+
+      '至少再填一行已知的值（第二行可以就填在第一个空格上），才会往下推。'};
+  const eps=c.flt?1e-6:0;
+  const d=filled[1].v-filled[0].v;
+  if(Math.abs(d)>c.maxStep+eps)
+    return {status:'bad',msg:'「'+c.label+'」公差超上限：第 '+(filled[0].oi+1)+' 行 '+predFmt(c,filled[0].v)+
+      ' → 第 '+(filled[1].oi+1)+' 行 '+predFmt(c,filled[1].v)+'，每行差 '+predFmt(c,d)+
+      '，超过这类允许的最大 '+c.maxStep+'。请把这两行的值改近一点（或改小跳变幅度）再点一次。'};
+  for(let t=1;t<filled.length;t++){
+    const a=filled[t-1],b=filled[t],gap=b.k-a.k;
+    if(Math.abs((b.v-a.v)-d*gap)>eps)
+      return {status:'bad',msg:'「'+c.label+'」变化不连续：第 '+(a.oi+1)+' 行 '+predFmt(c,a.v)+
+        ' 和第 '+(b.oi+1)+' 行 '+predFmt(c,b.v)+' 之间对不上 —— 按公差 '+predFmt(c,d)+'、隔 '+gap+
+        ' 行算，第 '+(b.oi+1)+' 行应是 '+predFmt(c,a.v+d*gap)+
+        '。请把这一类的已填值改成连续的递增 / 递减 / 相同，再点一次。'};
+  }
+  const fmtV=c.flt?(x=>Math.round(x*1000)/1000):(x=>Math.round(x));
+  const sp=SERIES[c.f]||{lo:-1e9,hi:1e9};
+  const fills=new Map();
+  empties.forEach(e=>{
+    let v=null;
+    let ref=null;
+    for(let t=filled.length-1;t>=0;t--){if(filled[t].k<e.k){ref=filled[t];break;}}
+    if(ref)v=ref.v+d*(e.k-ref.k);
+    else{
+      let ref2=null;
+      for(let t=0;t<filled.length;t++){if(filled[t].k>e.k){ref2=filled[t];break;}}
+      if(ref2)v=ref2.v-d*(ref2.k-e.k);
+    }
+    if(v==null)return;
+    v=fmtV(v);
+    if(c.f==='color')v=wrapColor(v);          // 色号沿用现有的 1~16 循环
+    else v=Math.max(sp.lo,Math.min(sp.hi,v));
+    fills.set(e.oi,v);
+  });
+  return {status:'ok',fills:fills};
+}
+/* 一键补齐：按类检查规律 → 合规的类补空，不合规的弹窗说明，一个都不乱填 */
 function fillAllPred(){
-  let n=0;
-  S.rows.forEach((r,i)=>{
-    if(r.combo)return;
-    triggerMissing(r).forEach(f=>{
-      const p=predForField(f,i);if(p){setField(r,f,p.raw);n++;}
-    });
-    Object.keys(SERIES).forEach(fld=>{
-      if(SERIES[fld].need)return;              // 触发类上面已经处理过
-      if(fieldValue(fld,r)!=null)return;
-      const p=predForField(fld,i);if(!p)return;
-      r[fld]=p.raw;n++;
+  const sel=[];
+  S.rows.forEach((_,i)=>{if(S.sel&&S.sel.has(i))sel.push(i);});
+  const scoped=sel.length?sel:S.rows.map((_,i)=>i);
+  if(!scoped.length){toast('表里还没有行');return;}
+  const problems=[],notices=[];let n=0,checked=0;
+  PRED_CLASSES.forEach(c=>{
+    const res=analyzePredClass(c,scoped);
+    if(res.status==='empty')return;
+    checked++;
+    if(res.status==='one'||res.status==='bad'){problems.push(res.msg);return;}
+    res.fills.forEach((v,oi)=>{
+      setField(S.rows[oi],c.f,v);
+      n++;
     });
   });
-  renderTable();
-  toast(n?('已补齐 '+n+' 个推出来的值'):'现在没有可以推的格子');
+  // 组合触发（双键 / 键+通道）的第二键、通道：永不自动补，发现已填就说明一下
+  let combo2=0;
+  scoped.forEach(i=>{
+    const r=S.rows[i];if(!r||r.combo)return;
+    const s=String(r.switch||'');
+    if(s==='ks2'&&(r.note2!=null&&r.note2!==''))combo2++;
+    if(s==='ks+ch'&&(r.channel!=null&&r.channel!==''))combo2++;
+  });
+  if(combo2)
+    notices.push('有 '+combo2+' 行是「双键齐按 / 通道＋按键」——第二键 / 组合通道是键位组合的一部分，'+
+      '不参与自动补齐。要改请用键位组合（同时生效的技法）或直接手动改格子。');
+  renderTable(true);
+  toast(n?('已补齐 '+n+' 个值（检查了 '+checked+' 类）'):'没有可以补的空格',4000);
+  if(problems.length){
+    alert('这次有几类没有补，先按提示改好，再点一次「补齐推算出来的值」：\n\n'+
+      problems.map((p,i)=>'【'+(i+1)+'】'+p).join('\n\n')+
+      (notices.length?'\n\n'+notices.join('\n'):''));
+  }else if(notices.length){
+    alert(notices.join('\n'));
+  }
 }
 
 /* ================= 列宽：可拖 + 每列最低宽度 =================
@@ -1128,7 +1246,8 @@ function renderTable(keepSel){
   paintAdv();
   renderCombos();
   if(S.actIdx!=null)markCurRow(S.actIdx);
-  restoreWantFocus();
+  /* 鼠标点的那一格优先还（那是人当下的意图）；没有点击时，才把焦点还给键盘导航的目标格。 */
+  if(!restoreWantFocus()&&_kbWant){const w=_kbWant;_kbWant=null;restoreKbFocus(w);}
 }
 
 /* ================= 重画之后把焦点还给「用户刚点的那一格」 =================
@@ -1159,10 +1278,18 @@ function restoreWantFocus(){
 }
 
 /* ================= 表格键盘导航 =================
-   - 方向键：在整行范围内挪「编辑位」。输入框里左右键先让光标走，走到两头了才跳格；
-     下拉框上方向键仍然用来选值，想挪位置按 Alt+方向键。
-   - Tab / Shift+Tab：跳到下一行 / 上一行的同一列，并直接进编辑。
-   - 落到按钮上时画个虚方框表示「选中」，按回车就是按它。 */
+   - 方向键：上下换行、左右换格。输入框里左右键先让光标走，走到两头了才跳格。
+   - **下拉框（触发方式 / 条件层 / 技法类型）不抢方向键**：
+     落到下拉框上只是「选中」，上下键照样用来换行 —— 不会顺手把值改掉；
+     · 按 **回车** 才弹出选项，之后上下键选值、回车确认（Esc 取消）；
+     · 按 **Tab** 跳到下一行同一列并**自动弹出**选项，选完再 Tab 就是一个接一个地过。
+     · 想直接在原地改值：Alt+↓ 打开（浏览器自带），或点一下这一格。
+   - Tab / Shift+Tab：跳到下一行 / 上一行的同一列，并直接进编辑（下拉框则弹开）。
+   - 落到按钮上时画个虚方框表示「选中」，按回车就是按它。
+   - ⚠️ **移动焦点前必须先让当前格子失焦**：因为 change 是失焦才发的，
+     而它一发就会整表重画、把刚 focus 的目标格销毁 —— 焦点掉回 body，
+     表现就是「填过东西之后 Tab / 方向键就不进格子了」。
+     所以统一走 _kbWant：先 blur 把改动收进去，重画完再把焦点还到目标格。 */
 /* ⚠️ 'note2' 也在列里：双键齐按那一行有**两个**键位框（键1 + 键2），
    少了它第二个框就只能靠鼠标点。别的行没有这个框，nearCell 会兜住。 */
 const NAVK=['sel','name','atype','group','switch','note','note2','color','save','share','adv','del'];
@@ -1192,13 +1319,48 @@ function clearKFocus(){
   Array.prototype.forEach.call(document.querySelectorAll('#tbody button.kfocus'),
     b=>b.classList.remove('kfocus'));
 }
-function focusCell(el,edit){
+/* 打开下拉框（HTMLSelectElement.showPicker，Chrome / Edge 支持）。
+   弹出的这一刻起，上下键归下拉框自己用，我们的 keydown 全部让路（_selOpen）。 */
+let _selOpen=false;
+function openSelect(el){
+  if(el&&typeof el.showPicker==='function'){
+    try{el.showPicker();_selOpen=true;return true;}
+    catch(e){return false;}        // 已经在展开状态之类，静默略过，不打扰
+  }
+  toast('这个浏览器不能自动展开下拉，按 Alt+↓ 打开（或点一下这一格）');
+  return false;
+}
+function focusCell(el,edit,openSel){
   if(!el)return false;
   el.focus();
   if(el.tagName==='BUTTON')el.classList.add('kfocus');
   else clearKFocus();
   if(edit&&el.tagName==='INPUT'&&el.type!=='checkbox'){try{el.select();}catch(e){}}
+  if(openSel&&el.tagName==='SELECT')openSelect(el);
   return true;
+}
+/* 键盘导航的「重画之后把焦点还给哪一格」。
+   流程：记下目标 → 让当前格失焦（可能引发 change → 整表重画）
+   → 重画末尾的 restoreKbFocus 用**新的** DOM 重新定位并落地。
+   没引发重画就由调用方自己补一次（见 navTo）。 */
+let _kbWant=null;
+function restoreKbFocus(w){
+  if(!w||w.row==null)return false;
+  const el=cellAt(w.row,w.k)||nearCell(w.row,w.k);
+  if(!el)return false;
+  markCurRow(w.row);
+  return focusCell(el,!!w.edit,!!w.open);
+}
+/* 统一的「跳到某一格」：先 blur 再落地，躲开 change 重画销毁目标格的老毛病。 */
+function navTo(el,row,k,edit,open){
+  if(row==null)return false;
+  _kbWant={row:row,k:k,edit:!!edit,open:!!open};
+  try{if(el&&el.blur)el.blur();}catch(e){}
+  if(_kbWant){                       // 没触发重画 → 自己在旧 DOM 上落地
+    const w=_kbWant;_kbWant=null;
+    return restoreKbFocus(w);
+  }
+  return true;                       // 触发了重画 → 已在 renderTable 末尾落地
 }
 /* 记住「当前行」—— 键盘导航、MIDI 录键、下面的「更多参数」面板都跟着这一行走。
    ⚠️ 细则面板展开时必须一起切：不然表格里已经跳到第 5 行了，
@@ -1218,31 +1380,45 @@ function moveCell(el,dir){
     const step=(dir==='down'?1:-1);
     for(let j=i+step;j>=0&&j<S.rows.length;j+=step){
       const t=cellAt(j,k)||nearCell(j,k);
-      if(t){markCurRow(j);return focusCell(t,true);}
+      if(t)return navTo(el,j,t.dataset.k||k,true,false);
     }
     return false;
   }
   const cells=rowCells(i),at=cells.indexOf(el),nx=cells[at+(dir==='right'?1:-1)];
-  if(nx)return focusCell(nx,false);
-  return false;
+  if(!nx)return false;
+  // 左右换格只是换个位置，不自动全选（免得刚跳过去就整段选中，按一下右键又只是取消全选）
+  return navTo(el,i,nx.dataset.k,false,false);
 }
+/* Tab = 下一行同一列；落到下拉框上要**自动弹开**，选完再 Tab 就接着往下走 */
 function jumpRow(el,delta){
   const tr=el.closest('tr');if(!tr)return false;
   const i=+tr.dataset.r,k=el.dataset.k,j=i+delta;
   if(j<0||j>=S.rows.length)return false;
   const t=cellAt(j,k)||nearCell(j,k);
-  if(t){markCurRow(j);return focusCell(t,true);}
-  return false;
+  return navTo(el,j,(t&&t.dataset.k)||k,true,true);
 }
 document.getElementById('tbody').addEventListener('keydown',e=>{
   const el=e.target;
   if(!el.dataset||!el.dataset.k)return;
   const tag=el.tagName,k=e.key,alt=e.altKey;
-  if(k==='Tab'){e.preventDefault();jumpRow(el,e.shiftKey?-1:1);return;}
-  if(k==='Enter'&&tag!=='BUTTON'&&tag!=='SELECT'){e.preventDefault();moveCell(el,'down');return;}
+  if(k==='Tab'){e.preventDefault();_selOpen=false;jumpRow(el,e.shiftKey?-1:1);return;}
+  /* 下拉框已经弹开：方向键归它选值，回车 / Esc 也交给浏览器（确认 / 取消） */
+  if(_selOpen){
+    if(k==='ArrowUp'||k==='ArrowDown')return;
+    _selOpen=false;
+    if(k==='Escape'||k==='Enter')return;
+  }
+  if(k==='Enter'){
+    if(tag==='BUTTON')return;                // 按钮的回车 = 按下它，交给浏览器
+    e.preventDefault();
+    if(tag==='SELECT'){openSelect(el);return;}   // 下拉框：回车才弹选项
+    moveCell(el,'down');return;
+  }
   const dir={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'}[k];
   if(!dir)return;
-  if(tag==='SELECT'&&!alt)return;            // 下拉框的方向键留给它自己选值
+  /* 下拉框：只「选中」，方向键用于换行（下面统一 preventDefault，值不会被改掉）；
+     按住 Alt 才让浏览器自己处理 —— Alt+↓ 就是浏览器自带的「打开下拉」。 */
+  if(tag==='SELECT'&&alt)return;
   if(tag==='INPUT'&&!alt&&el.type!=='checkbox'&&(dir==='left'||dir==='right')){
     const s=(el.selectionStart==null?0:el.selectionStart),len=(el.value||'').length;
     // 刚跳过来的一格是整段选中的（说明人还没开始改内容）—— 这时方向键直接换格，
@@ -1261,6 +1437,7 @@ document.getElementById('tbody').addEventListener('focusin',e=>{
   if(tr&&tr.dataset.r!=null)markCurRow(+tr.dataset.r);
 });
 document.getElementById('tbody').addEventListener('focusout',e=>{
+  _selOpen=false;                     // 焦点走了，下拉框算关了
   if(e.target.tagName==='BUTTON')e.target.classList.remove('kfocus');
 });
 
@@ -1680,6 +1857,10 @@ function applyKeyChange(r,t){applyKeyField(r,'note',t);}
 document.getElementById('tbody').addEventListener('change',e=>{
   const t=e.target,i=+t.dataset.i,f=t.dataset.f;if(i==null||!f)return;
   const r=S.rows[i];
+  /* 改完值要重画，重画会把这一格也销毁 —— 没人在导航就至少把焦点还给原格，
+     不然「改一下就跳出去了」。键盘导航时 _kbWant 已经有目标，别覆盖它。 */
+  _selOpen=false;
+  if(!_kbWant&&t.dataset.k)_kbWant={row:i,k:t.dataset.k,edit:false};
   const prevName=r.name;   // 下面的赋值会改掉 r.name，描述同步要用改之前的
   if(f==='note'||f==='note2'||f==='cc_num'||f==='cc_val'||f==='channel')applyKeyField(r,f,t);
   else if(f==='group'){r.group=+t.value;
@@ -1700,15 +1881,63 @@ function delRow(i){S.rows.splice(i,1);S.sel=new Set();renderTable();}
 /* 加一行：
    - 触发方式 / 条件层 继承上一行（一次录一串同类技法时最省事）
    - 名字用「默认技法名」，里面写 {n} 就自动编号
-   - **按这一行的触发方式**接着已经有的规律往下排：
-       按键   → 触发键（C1、C#1、D1…）
-       双键   → 触发键 + 第二键
-       通道   → 通道（1、2、3…）
-       CC     → CC 号（整串一样就填一样的）+ CC 值（1、2、3…）
-     细则参数（长度 / 转调 / 力度 / 音高窗口）也各自成串：前面几行填了同一个值，
-     新行就跟着填同一个值 —— 一个断奏组不用每行再手打一遍 0.2。
-     ⚠️ 通道不能给按键行乱填：写进 XML 会把输出固定在那个通道上。
-     所以「谁参与」完全由触发方式决定，见 fieldPool()。 */
+   - 其余格子分两套：
+     ① 触发键 / 通道 / CC 号 / CC 值 / 长度 / 力度系数 / 转调 / 力度窗口 / 音高窗口
+        → **末端两值法**（tailTwo）：只看新行前面**最近的两个已填值**，
+          差恰好是 1 / 0 / -1 才接着往下走一格。前面整串乱不乱**不管**——
+          就算中间有行跳着排，只要最后两个是连续的，新行就能接上。
+        · 差 = 0 就是「整串同一个值」，新行跟着填同一个值
+        · 通道＋按键行：触发键和通道是**两个独立的串，分开计算**——
+          触发键看前面触发键的最后两个，通道看前面通道（含通道＋按键行）的最后两个
+     ② 显示色 → 同上末端两值法，只是色号走到头会绕回 1（1~16 循环）；
+        推不出来 / 整表一行颜色都没填过 → 跟随上一行（老规矩）
+   - 推不出来的类（不足两个值 / 最后两个不连续 / 超出范围）会弹窗说明，
+     别的类照补，绝不乱填 */
+/* 加一行专用的「末端两值法」类。channel 的参与行包含「通道＋按键」——
+   「双键齐按」的第二键不在类里，永不自动补。 */
+const TAIL_CLASSES=[
+  {f:'note',         label:'触发键',   pool:r=>{const s=String(r.switch||'');return s==='ks'||s==='ks2'||s==='ks+ch';}},
+  {f:'channel',      label:'通道',     pool:r=>{const s=String(r.switch||'');return s==='ch'||s==='ks+ch';}},
+  {f:'cc_num',       label:'CC 号',    pool:r=>String(r.switch||'')==='cc'},
+  {f:'cc_val',       label:'CC 值',    pool:r=>String(r.switch||'')==='cc'},
+  {f:'length_fact',  label:'长度',     pool:()=>true},
+  {f:'velocity_fact',label:'力度系数', pool:()=>true},
+  {f:'transpose',    label:'转调',     pool:()=>true},
+  {f:'min_velocity', label:'最小力度', pool:()=>true},
+  {f:'max_velocity', label:'最大力度', pool:()=>true},
+  {f:'min_pitch',    label:'最小音高', pool:()=>true},
+  {f:'max_pitch',    label:'最大音高', pool:()=>true},
+  {f:'color',        label:'显示色',   pool:()=>true}];
+/* 末端两值法：只看新行前面**最近的两个已填值**，差恰好是 1 / 0 / -1 才接着走一格。
+   返回 {status:'ok',v} / {status:'empty'}（这一类没人填过，静默跳过）
+   / {status:'few'|'gap'|'range', msg}（推不出来，弹窗说明） */
+function tailTwo(c,n){
+  const vals=[];
+  for(let i=0;i<n;i++){
+    const rr=S.rows[i];
+    if(!rr||rr.combo||!c.pool(rr))continue;
+    const v=predClassValue(c,rr);
+    if(v!=null)vals.push({k:i,v:v});
+  }
+  if(!vals.length)return {status:'empty'};
+  if(vals.length<2)
+    return {status:'few',msg:'「'+c.label+'」只有第 '+(vals[0].k+1)+
+      ' 行填了值，看不出往下怎么走 —— 前面至少要有两个已知的值，新行才会接着排。'};
+  const a=vals[vals.length-2],b=vals[vals.length-1];
+  const d=b.v-a.v,eps=1e-9;
+  if(!(Math.abs(d-1)<eps||Math.abs(d)<eps||Math.abs(d+1)<eps))
+    return {status:'gap',msg:'「'+c.label+'」最后两个已填的值不连续：第 '+(a.k+1)+' 行 '+predFmt(c,a.v)+
+      ' → 第 '+(b.k+1)+' 行 '+predFmt(c,b.v)+'，差 '+predFmt(c,d)+'，不是 1 / 0 / -1，新行不接着排。'+
+      '想让新行自动填，就把最后两行的这一格改成连续的（相同值，或逐行 ±1）。'};
+  let v=b.v+d;
+  if(c.f==='length_fact'||c.f==='velocity_fact')v=Math.round(v*1000)/1000;
+  if(c.f==='color')return {status:'ok',v:wrapColor(v)};   // 色号走到头绕回 1~16
+  const sp=SERIES[c.f]||{lo:-1e9,hi:1e9};
+  if(v<sp.lo||v>sp.hi)
+    return {status:'range',msg:'「'+c.label+'」接着排是 '+predFmt(c,v)+
+      '，已超出允许范围（'+sp.lo+' ~ '+sp.hi+'），新行不填这一格。'};
+  return {status:'ok',v:v};
+}
 function addRow(){
   const n=S.rows.length;
   const r=blankRow();
@@ -1718,69 +1947,41 @@ function addRow(){
   r.name=autoName(n,r);
   r.description=r.name;
   if(r.conditions&&r.conditions.length)r.conditions[0].description=r.name;
-  r.color=inheritColor();
-  const sw=String(r.switch||'');
-  if(sw==='ks'||sw==='ks2'||sw==='ks+ch'){
-    const v=nextInSeries('note',n);
-    if(v!=null)setField(r,'note',v);
-  }
-  if(sw==='ks2'){
-    const v2=nextInSeries('note2',n);
-    if(v2!=null)r.note2=v2;
-  }
-  if(sw==='ch'||sw==='ks+ch')r.channel=nextInSeries('channel',n);
-  if(sw==='cc'){
-    const cn=nextInSeries('cc_num',n);
-    if(cn!=null)r.cc_num=cn;
-    const cv=nextInSeries('cc_val',n);
-    if(cv!=null)r.cc_val=cv;
-  }
-  // 细则参数：只有前面已经形成规律（同一个值或等差）才跟着填
-  ['length_fact','velocity_fact','transpose','min_velocity','max_velocity',
-   'min_pitch','max_pitch'].forEach(fld=>{
-    const v=nextInSeries(fld,n);
-    if(v!=null)r[fld]=v;
+  const colorFallback=inheritColor();   // 兜底色要在 push **之前**取，否则取到新行自己
+  S.rows.push(r);                       // 先入表：行号、名字都按真实位置来
+  const problems=[],notices=[];let cnt=0,colorDone=false;
+  TAIL_CLASSES.forEach(c=>{
+    if(!c.pool(r))return;               // 这一行的触发方式用不到的类，不看
+    const res=tailTwo(c,n);
+    if(res.status==='empty')return;
+    if(res.status!=='ok'){problems.push(res.msg);return;}
+    setField(r,c.f,res.v);
+    if(c.f==='color')colorDone=true;
+    cnt++;
   });
-  S.rows.push(r);
+  /* 颜色没推出来（整表没人填过颜色就是这种）→ 跟随上一行。
+     绝不自动随机变色 —— 那是「颜色模块」里的可选项，默认不做。 */
+  if(!colorDone)r.color=colorFallback;
+  if(String(r.switch||'')==='ks2')
+    notices.push('新加的这一行是「双键齐按」——第二键是键位组合的一部分，不参与推算，请手动填。');
   renderTable(true);
   const inp=document.querySelector('#tbody tr:last-child [data-f="name"]');
   if(inp){inp.focus();inp.select();}
+  // 只在真的有类推不出来时才弹窗，顺带说明第二键那条，免得每次加行都打扰
+  if(problems.length){
+    alert('新行按规律补上了 '+cnt+' 个值，但有几类推不出来，先按提示改好再加下一行：\n\n'+
+      problems.map((p,i)=>'【'+(i+1)+'】'+p).join('\n\n')+
+      (notices.length?'\n\n'+notices.join('\n'):''));
+  }
 }
-/* 新行颜色**跟随上一行**。
-   不要自动递增或随机变色 —— 那是「颜色模块」里的可选项，默认不做。
-   颜色本身的默认含义是「同一个东西用同一个色」，自动变色只会添乱。 */
+/* 颜色的兜底：往上找最近一个有颜色的行，直接用它的色号；一个都没有就是 1。
+   正常情况下颜色由 PRED_CLASSES 里的 color 类推算，只有当整表没人填过颜色时才用到这里。 */
 function inheritColor(){
   for(let i=S.rows.length-1;i>=0;i--){
     const c=+S.rows[i].color;
     if(c)return c;
   }
   return 1;
-}
-/* 末尾续排：前面已有的值里，取最后两个算出步长，接着往下走一格。
-   跟「只看下一个」是同一套思路 —— 末尾没有下一个，就只能看前两个。
-   · 整串都是**同一个值**、而这个字段重复是有意义的（CC 号、长度、转调这类）
-     → 新行也填这个值（"相同的一路相同"）
-   · 触发键 / 第二键 / 通道 / CC 值不继承「相同值」—— 重复的键位在 Cubase 里会打架
-   · 不足两个已知值、或者步长不是匀速，就什么都不填 */
-function nextInSeries(fld,n){
-  const d=SERIES[fld];
-  const ok=fieldPool(fld,S.rows);
-  const vals=[];
-  for(let i=0;i<n;i++){
-    if(!ok[i])continue;
-    const v=fieldValue(fld,S.rows[i]);
-    if(v!=null)vals.push(v);
-  }
-  if(vals.length<2)return null;
-  const step=vals[vals.length-1]-vals[vals.length-2];
-  if(Math.abs(step)<1e-9&&!d.same)return null;
-  // 只在整段都是同一个步长时才续，免得把乱序的表格接着排错
-  for(let k=1;k<vals.length;k++)
-    if(Math.abs((vals[k]-vals[k-1])-step)>1e-9)return null;
-  let v=vals[vals.length-1]+step;
-  if(d.flt)v=Math.round(v*1000)/1000;
-  if(v<d.lo||v>d.hi)return null;
-  return v;
 }
 document.getElementById('addRow').onclick=addRow;
 document.getElementById('clearRow').onclick=()=>{
@@ -1920,14 +2121,21 @@ ADV_IDS.forEach(id=>{
 /* 面板里的键盘，跟表格上用同一套习惯：
      ↑ / ↓    → 上一行 / 下一行，焦点落在**同一个框**里（不选中，直接接着改）
      Tab      → 下一行同一个框，整段选中 = 进编辑模式（Shift+Tab 往回）
-     下拉框    → 方向键还是留给它自己选值，要挪行就按住 Alt
+     下拉框    → 跟表格一个规矩：方向键用来换行，**回车才弹开选项**，
+                弹开之后上下键选值、回车确认；Tab 过去自动弹开。
+                （想直接改值就 Alt+↓，那是浏览器自带的打开方式）
    ⚠️ 换行前先 advCommit，不然当前框里没失焦的改动会丢。 */
 document.getElementById('adv').addEventListener('keydown',e=>{
   const el=e.target;
   if(!el||!el.id||ADV_IDS.indexOf(el.id)<0)return;
   const k=e.key,isSel=el.tagName==='SELECT';
+  if(_selOpen){
+    if(k==='ArrowUp'||k==='ArrowDown')return;
+    _selOpen=false;
+    if(k==='Escape'||k==='Enter')return;
+  }
+  if(k==='Enter'){if(isSel){e.preventDefault();openSelect(el);}return;}
   if(k!=='Tab'&&k!=='ArrowUp'&&k!=='ArrowDown')return;
-  if(isSel&&k!=='Tab'&&!e.altKey)return;          // 下拉框：方向键留给选值
   const delta=(k==='ArrowUp'||(k==='Tab'&&e.shiftKey))?-1:1;
   const j=S.advIdx+delta;
   if(j<0||j>=S.rows.length)return;
@@ -1938,7 +2146,8 @@ document.getElementById('adv').addEventListener('keydown',e=>{
   if(t){
     t.focus();
     try{
-      if(k==='Tab')t.select();                      // Tab = 进编辑模式
+      if(isSel){if(k==='Tab')openSelect(t);}       // 下拉框：Tab 过去直接弹开
+      else if(k==='Tab')t.select();                // 输入框：Tab = 进编辑模式
       else if(t.setSelectionRange)t.setSelectionRange(t.value.length,t.value.length);
     }catch(err){}
   }
@@ -2049,18 +2258,59 @@ async function promote(i){
 }
 
 /* ================= 左：技法清单 ================= */
+/* 条目上直接挂「所属音源」小标：全部 / 全局档看得见每个技法是哪个音源的，
+   本音源档全是当前音源、不重复标。分组（音源 / 技法名）与排序（拼音 / 键位数值）
+   只影响这里显示的顺序，不改数据。 */
+function libKeyNum(d){
+  const m=String(d._key||'').match(/-?\d+/);
+  return m?+m[0]:Number.MAX_SAFE_INTEGER;
+}
+function libRender(res){
+  const gEl=document.getElementById('libGroup'),sEl=document.getElementById('libSort');
+  const g=gEl?gEl.value:'none',srt=sEl?sEl.value:'none';
+  const py=(a,b)=>String(a).localeCompare(String(b),'zh-Hans-CN');
+  let items=res.map((d,i)=>({d:d,k:i}));           // k = S.libCache 里的原始下标
+  const byPy=(a,b)=>py(a.d.name,b.d.name)||py(a.d._key,b.d._key);
+  const byKey=(a,b)=>libKeyNum(a.d)-libKeyNum(b.d)||byPy(a,b);
+  if(srt==='pinyin')items.sort(byPy);
+  else if(srt==='key')items.sort(byKey);
+  const itemHTML=x=>`<div class="item" data-k="${x.k}" title="${esc(swDesc(x.d.switch))}${x.d.source?' · 音源：'+esc(x.d.source):''}">
+      <span class="tag ${x.d._scope==='lib'?'lib':''}">${x.d._scope==='lib'?'本':'全'}</span>
+      <span class="nm">${esc(x.d.name)}</span>
+      <span class="tag g${x.d.group}">Art.${x.d.group+1}</span>
+      ${S.scope!=='lib'?`<span class="tag" title="所属音源">${esc(x.d.source||'全局')}</span>`:''}
+      <span class="k mono">${esc(x.d._key)}</span></div>`;
+  let html='';
+  if(g==='source'||g==='name'){
+    const map=new Map();
+    items.forEach(x=>{
+      const key=g==='source'
+        ? (x.d._scope==='lib'?(srcName()||'本音源'):(x.d.source||'全局'))
+        : (x.d.name||'（未命名）');
+      if(!map.has(key))map.set(key,[]);
+      map.get(key).push(x);
+    });
+    let keys=Array.from(map.keys());
+    if(srt!=='key')keys.sort((a,b)=>py(a,b));
+    keys.forEach(key=>{
+      const arr=map.get(key);
+      html+=`<div class="hint" style="padding:3px 9px;background:#f7f8fa;border-bottom:1px solid #e3e6ea;font-weight:600">`+
+        `${esc(key)}（${arr.length}）</div>`+arr.map(itemHTML).join('');
+    });
+  }else{
+    html=items.length?items.map(itemHTML).join('')
+      :'<div class="hint" style="padding:12px">没有匹配的条目。<br>在右边表格里填好一个技法，点「保存」就会进这儿。</div>';
+  }
+  if(!items.length&&g!=='none')
+    html='<div class="hint" style="padding:12px">没有匹配的条目。<br>在右边表格里填好一个技法，点「保存」就会进这儿。</div>';
+  document.getElementById('liblist').innerHTML=html;
+}
 async function loadLib(q){
   let res=await api('/api/search?q='+encodeURIComponent(q||'')+'&source='+encodeURIComponent(srcName()));
   if(S.scope==='lib')res=res.filter(x=>x._scope==='lib');
   else if(S.scope==='global')res=res.filter(x=>x._scope!=='lib');
   S.libCache=res;
-  document.getElementById('liblist').innerHTML=res.length?res.map((d,i)=>
-    `<div class="item" data-k="${i}" title="${esc(swDesc(d.switch))}">
-      <span class="tag ${d._scope==='lib'?'lib':''}">${d._scope==='lib'?'本':'全'}</span>
-      <span class="nm">${esc(d.name)}</span>
-      <span class="tag g${d.group}">Art.${d.group+1}</span>
-      <span class="k mono">${esc(d._key)}</span></div>`).join('')
-    :'<div class="hint" style="padding:12px">没有匹配的条目。<br>在右边表格里填好一个技法，点「保存」就会进这儿。</div>';
+  libRender(res);
 }
 document.getElementById('liblist').addEventListener('click',e=>{
   const d=e.target.closest('[data-k]');if(!d)return;
@@ -2068,6 +2318,8 @@ document.getElementById('liblist').addEventListener('click',e=>{
   S.rows.push(rowFor(it));renderTable();toast('已加入：'+it.name+' · '+it._key);
 });
 document.getElementById('q').addEventListener('input',e=>loadLib(e.target.value));
+document.getElementById('libGroup').addEventListener('change',()=>libRender(S.libCache||[]));
+document.getElementById('libSort').addEventListener('change',()=>libRender(S.libCache||[]));
 Array.prototype.forEach.call(document.querySelectorAll('.segbar button'),b=>{
   b.onclick=()=>{S.scope=b.dataset.sc;
     Array.prototype.forEach.call(document.querySelectorAll('.segbar button'),
@@ -2459,16 +2711,63 @@ document.getElementById('mgrBtn').onclick=async()=>{
         const i=mix(x.id,x.name);
         return `<li>${esc(x.name)}
         <button class="mini" onclick="libDelAt(${i})">删</button></li>`;}).join('')+'</ul>';}
+  /* 全部条目：每条挂「所属音源」，支持按音源 / 技法名分组、按拼音 / 键位数值排序。
+     改排序只重画这一块，mix 下标不变，「改 / 删」按钮照常能找到原条目。 */
+  MGR_ITEMS=items.map(it=>({it:it,mix:mix(it._id,it.name)}));
   h+=`<div class="sec">全部条目（${items.length}）</div>
-    <div style="max-height:320px;overflow:auto;border:1px solid #e3e6ea;border-radius:8px">`+
-    items.map(it=>`<div class="item"><span class="tag g${it.group}">Art.${it.group+1}</span>
-      <span class="nm">${esc(it.name)}</span>
-      <span class="k mono">${esc(it._key)}</span>
-      <span class="tag">${esc(swName(it.switch))}</span>
-      <button class="mini" onclick="libEditAt(${mix(it._id,it.name)})">改</button>
-      <button class="mini warn" onclick="libDelAt(${mix(it._id,it.name)})">删</button></div>`).join('')+
-    '</div><div class="hint" style="margin-top:8px">每次写盘都留一份 .bak，删错了可以回滚。</div>';
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <select id="mgrGroup" style="flex:1" onchange="mgrRenderItems()">
+        <option value="none">不分组</option>
+        <option value="source">按音源分组</option>
+        <option value="name">按技法名分组</option>
+      </select>
+      <select id="mgrSort" style="flex:1" onchange="mgrRenderItems()">
+        <option value="none">默认顺序</option>
+        <option value="pinyin">按名称拼音</option>
+        <option value="key">按键位数值</option>
+      </select>
+    </div>
+    <div id="mgrList" style="max-height:320px;overflow:auto;border:1px solid #e3e6ea;border-radius:8px"></div>
+    <div class="hint" style="margin-top:8px">每次写盘都留一份 .bak，删错了可以回滚。</div>`;
   openModal(h);
+  mgrRenderItems();
+};
+/* 技法清单管理弹窗里的「全部条目」数据（打开弹窗时重建） */
+let MGR_ITEMS=[];
+window.mgrRenderItems=()=>{
+  const box=document.getElementById('mgrList');if(!box)return;
+  const gEl=document.getElementById('mgrGroup'),sEl=document.getElementById('mgrSort');
+  const g=gEl?gEl.value:'none',srt=sEl?sEl.value:'none';
+  const py=(a,b)=>String(a).localeCompare(String(b),'zh-Hans-CN');
+  const keyNum=x=>{const m=String(x.it._key||'').match(/-?\d+/);return m?+m[0]:Number.MAX_SAFE_INTEGER;};
+  const arr=MGR_ITEMS.slice();
+  if(srt==='pinyin')arr.sort((a,b)=>py(a.it.name,b.it.name)||py(a.it._key,b.it._key));
+  else if(srt==='key')arr.sort((a,b)=>keyNum(a)-keyNum(b)||py(a.it.name,b.it.name));
+  const rowHTML=x=>`<div class="item"><span class="tag g${x.it.group}">Art.${x.it.group+1}</span>
+      <span class="nm">${esc(x.it.name)}</span>
+      <span class="tag" title="所属音源">${esc(x.it.source||'全局')}</span>
+      <span class="k mono">${esc(x.it._key)}</span>
+      <span class="tag">${esc(swName(x.it.switch))}</span>
+      <button class="mini" onclick="libEditAt(${x.mix})">改</button>
+      <button class="mini warn" onclick="libDelAt(${x.mix})">删</button></div>`;
+  let html='';
+  if(g==='source'||g==='name'){
+    const map=new Map();
+    arr.forEach(x=>{
+      const key=g==='source'?(x.it.source||'全局'):(x.it.name||'（未命名）');
+      if(!map.has(key))map.set(key,[]);
+      map.get(key).push(x);
+    });
+    const keys=Array.from(map.keys());
+    if(srt!=='key')keys.sort((a,b)=>py(a,b));
+    keys.forEach(key=>{
+      html+=`<div class="hint" style="padding:3px 9px;background:#f7f8fa;border-bottom:1px solid #e3e6ea;font-weight:600">${esc(key)}（${map.get(key).length}）</div>`+
+        map.get(key).map(rowHTML).join('');
+    });
+  }else{
+    html=arr.length?arr.map(rowHTML).join(''):'<div class="hint" style="padding:12px">清单是空的。</div>';
+  }
+  box.innerHTML=html;
 };
 /* ⚠️ 这里**不能把 id / 名字拼进 onclick 属性**：
    属性文本要先过 HTML 解码、再当 JS 源码解析，而 id 里含技法名
