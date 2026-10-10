@@ -76,13 +76,26 @@ git -C "D:/缓存/workbuddy/CubaseEM" push -u origin main
 
 ## 以后改了代码怎么同步
 
+**推荐：双击 `更新GitHub.bat`**（一键版，三步全包）
+
+1. 先列出这次改了哪些文件
+2. 让你敲一句说明（比如「修复加一行键位推算」）；**直接回车 = 取消，什么都不推**
+3. 自动 `add → commit → push`，最后打印最新 3 条提交
+
+没改动时它会自己说「Nothing changed」然后退出，不会硬推一个空提交。
+
+> ⚠️ 这个 bat 里的提示语**故意全是英文**：`.bat` 里写中文会被 cmd 按字节错位重读，
+> 整段变成乱码命令（双击没反应就是这么来的），和 `push_github.bat` 一个规矩。
+
+想自己敲命令也行，完全等价：
+
 ```bash
 git add -A
 git commit -m "改了什么"
-git push
+git push origin main
 ```
 
-嫌记命令麻烦就再双击一次 `push_github.bat`（它只负责接远程和推送，提交还得自己敲上面两条）。
+`push_github.bat` 是**第一次**用的（配远程地址 + 自检 SSH），日常同步别用它。
 
 ---
 
