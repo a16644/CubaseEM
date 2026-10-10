@@ -15,6 +15,7 @@
 
 > **想发给别人用 / 不想装 Python** → 看 **`免安装版说明.md`** 和 **`分享给朋友.md`**。
 > 想改代码就往下看，改完 `python build.py` 重新打包。
+> **每一版改了什么** → 看 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ```bash
 git clone https://github.com/<你的用户名>/CubaseEM.git
@@ -594,3 +595,4 @@ python tools/web_smoke/run.py    # 无头浏览器跑 10 个界面用例（约 2
 
 1. **别把自己 `config/` 里的个人技法库传上来**（`.gitignore` 已排除 `techniques.json` / `settings.json` / `libs/`）。
 2. 改了 `em/web/index.html` 或 `em/methods/` 之后跑一次上面的界面冒烟，UI 的坑基本都在那 10 个用例里钉着。
+3. **顺手更新 [`CHANGELOG.md`](CHANGELOG.md)** —— 版本号跟 `dist\` 里的 exe 文件名一致，发新版时两边一起改。
